@@ -1,0 +1,13 @@
+# PHP / окружение
+/vendor/
+*.log
+.env
+
+# Локальные настройки
+config/config.local.php
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
