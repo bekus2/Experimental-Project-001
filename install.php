@@ -1,17 +1,15 @@
 <?php
 /**
- * Установщик ВайбКод.
+ * Проект: ВайбКод
+ * Файл: install.php
+ * Автор: Beck Sarbassov
+ * Версия: 1.1.0
+ * Дата выпуска: 2026-06-16
+ * Последнее обновление: 2026-06-19
+ * Авторские права: © Beck Sarbassov. Все права защищены.
  *
- * Запуск из CLI:   php install.php
- * Или из браузера: открыть /install.php (после установки УДАЛИТЕ файл!)
- *
- * Делает:
- *   1. Создаёт БД и таблицы из sql/schema.sql
- *   2. Заполняет демо-пользователями (с настоящими хэшами паролей)
- *   3. Добавляет пару стартовых тем, чтобы форум не пустовал
- *
- * Демо-логины (пароль у всех: password123):
- *   neon_dev / lo_fi_lucy / promptsmith
+ * EN: Creates the database schema and seed users/topics for local installation.
+ * RU: Создает схему базы данных и стартовых пользователей/тем для локальной установки.
  */
 
 declare(strict_types=1);
@@ -58,13 +56,14 @@ try {
 $pdo->exec('USE `' . DB_NAME . '`');
 
 // --- 2. Демо-пользователи ---
+$defaultAdminPassword = '0123456789+Aa';
 $demoPassword = 'password123';
-$hash = password_hash($demoPassword, PASSWORD_DEFAULT);
 
 $users = [
-    ['neon_dev',   'neon@example.com',   '#7c5cff', 'Кодю под synthwave 🎧',     'admin'],
-    ['lo_fi_lucy', 'lucy@example.com',   '#22d3ee', 'lo-fi beats & clean code',   'member'],
-    ['promptsmith','prompt@example.com', '#f472b6', 'Шепчу нейросетям 🤖',        'moderator'],
+    ['beck_admin', 'bek0435@gmail.com', '#2563eb', 'Владелец и администратор форума.', 'admin', $defaultAdminPassword],
+    ['neon_dev',   'neon@example.com',  '#7c5cff', 'Кодю под synthwave 🎧',           'admin', $demoPassword],
+    ['lo_fi_lucy', 'lucy@example.com',  '#22d3ee', 'lo-fi beats & clean code',        'member', $demoPassword],
+    ['promptsmith','prompt@example.com','#f472b6', 'Шепчу нейросетям 🤖',             'moderator', $demoPassword],
 ];
 
 $ins = $pdo->prepare(
@@ -74,11 +73,13 @@ $ins = $pdo->prepare(
 );
 $ids = [];
 foreach ($users as $u) {
+    $hash = password_hash($u[5], PASSWORD_DEFAULT);
     $ins->execute([$u[0], $u[1], $hash, $u[2], $u[3], $u[4]]);
     $stmt = $pdo->prepare('SELECT id FROM users WHERE username = ?');
     $stmt->execute([$u[0]]);
     $ids[$u[0]] = (int)$stmt->fetchColumn();
 }
+out('✓ Администратор готов: bek0435@gmail.com / ' . $defaultAdminPassword . '.', $nl);
 out('✓ Демо-пользователи готовы (пароль: ' . $demoPassword . ').', $nl);
 
 // --- 3. Стартовые темы (только если форум пуст) ---

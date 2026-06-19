@@ -1,6 +1,15 @@
 <?php
 /**
- * Страница раздела: список тем с пагинацией.
+ * Проект: ВайбКод
+ * Файл: category.php
+ * Автор: Beck Sarbassov
+ * Версия: 1.1.0
+ * Дата выпуска: 2026-06-16
+ * Последнее обновление: 2026-06-19
+ * Авторские права: © Beck Sarbassov. Все права защищены.
+ *
+ * EN: Displays one forum category with sorted topic lists and pagination.
+ * RU: Показывает раздел форума со списком тем, сортировкой и пагинацией.
  */
 
 declare(strict_types=1);
@@ -9,6 +18,16 @@ require_once __DIR__ . '/includes/auth.php';
 
 $slug = trim((string)($_GET['slug'] ?? ''));
 $pdo  = db();
+
+$sortOptions = [
+    'recent' => 'Сначала активные',
+    'popular' => 'Популярные',
+    'unanswered' => 'Без ответов',
+];
+$sort = (string)($_GET['sort'] ?? 'recent');
+if (!array_key_exists($sort, $sortOptions)) {
+    $sort = 'recent';
+}
 
 $stmt = $pdo->prepare('SELECT * FROM categories WHERE slug = ?');
 $stmt->execute([$slug]);
@@ -23,22 +42,37 @@ if (!$category) {
     exit;
 }
 
-// Пагинация
-$total = (int)$pdo->query('SELECT COUNT(*) FROM topics WHERE category_id = ' . (int)$category['id'])->fetchColumn();
+// EN: Pagination count follows the same filter as the visible topic list.
+// RU: Счетчик пагинации использует тот же фильтр, что и видимый список тем.
+$extraWhere = $sort === 'unanswered'
+    ? ' AND (SELECT COUNT(*) FROM posts p0 WHERE p0.topic_id = t.id) = 1'
+    : '';
+$totalStmt = $pdo->prepare('SELECT COUNT(*) FROM topics t WHERE t.category_id = ?' . $extraWhere);
+$totalStmt->execute([(int)$category['id']]);
+$total = (int)$totalStmt->fetchColumn();
 $pages = max(1, (int)ceil($total / TOPICS_PER_PAGE));
 $page  = max(1, min($pages, (int)($_GET['p'] ?? 1)));
 $offset = ($page - 1) * TOPICS_PER_PAGE;
 
-$stmt = $pdo->prepare('
+$orderSql = match ($sort) {
+    'popular' => 't.views DESC, replies DESC, t.last_post_at DESC',
+    'unanswered' => 't.last_post_at DESC',
+    default => 't.is_pinned DESC, t.last_post_at DESC',
+};
+
+$limit = (int)TOPICS_PER_PAGE;
+$offset = (int)$offset;
+
+$stmt = $pdo->prepare("
     SELECT t.id, t.title, t.is_pinned, t.is_locked, t.views, t.created_at, t.last_post_at,
            u.username, u.avatar_color,
            (SELECT COUNT(*) FROM posts p WHERE p.topic_id = t.id) - 1 AS replies
     FROM topics t
     JOIN users u ON u.id = t.user_id
-    WHERE t.category_id = ?
-    ORDER BY t.is_pinned DESC, t.last_post_at DESC
-    LIMIT ' . (int)TOPICS_PER_PAGE . ' OFFSET ' . (int)$offset . '
-');
+    WHERE t.category_id = ? {$extraWhere}
+    ORDER BY {$orderSql}
+    LIMIT {$limit} OFFSET {$offset}
+");
 $stmt->execute([$category['id']]);
 $topics = $stmt->fetchAll();
 
@@ -59,10 +93,24 @@ require __DIR__ . '/includes/header.php';
     </div>
 </div>
 
+<form class="filter-bar" action="<?= url('category.php') ?>" method="get">
+    <input type="hidden" name="slug" value="<?= e($slug) ?>">
+    <label>
+        <span>Порядок</span>
+        <select name="sort">
+            <?php foreach ($sortOptions as $value => $label): ?>
+                <option value="<?= e($value) ?>" <?= $sort === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+            <?php endforeach; ?>
+        </select>
+    </label>
+    <button type="submit" class="btn btn-primary btn-sm">Показать</button>
+    <a class="btn btn-ghost btn-sm" href="<?= url('category.php?slug=' . urlencode($slug)) ?>">Сбросить</a>
+</form>
+
 <?php if (!$topics): ?>
     <div class="card empty">
         <div class="ico"><?= e($category['icon']) ?></div>
-        <p>В этом разделе пока нет тем.</p>
+        <p>По выбранной сортировке в разделе пока нет тем.</p>
         <?php if (is_logged_in()): ?>
             <a class="btn btn-primary" href="<?= url('new-topic.php?cat=' . (int)$category['id']) ?>">Создать первую</a>
         <?php endif; ?>
@@ -98,7 +146,7 @@ require __DIR__ . '/includes/header.php';
                 <?php if ($i === $page): ?>
                     <span class="current"><?= $i ?></span>
                 <?php else: ?>
-                    <a href="<?= url('category.php?slug=' . urlencode($slug) . '&p=' . $i) ?>"><?= $i ?></a>
+                    <a href="<?= url('category.php?slug=' . urlencode($slug) . '&sort=' . urlencode($sort) . '&p=' . $i) ?>"><?= $i ?></a>
                 <?php endif; ?>
             <?php endfor; ?>
         </nav>

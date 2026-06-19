@@ -1,6 +1,15 @@
 <?php
 /**
- * Сессии, аутентификация, CSRF.
+ * Проект: ВайбКод
+ * Файл: includes/auth.php
+ * Автор: Beck Sarbassov
+ * Версия: 1.1.0
+ * Дата выпуска: 2026-06-16
+ * Последнее обновление: 2026-06-19
+ * Авторские права: © Beck Sarbassov. Все права защищены.
+ *
+ * EN: Manages sessions, authentication state, role checks, and CSRF protection.
+ * RU: Управляет сессиями, состоянием авторизации, проверкой ролей и CSRF-защитой.
  */
 
 declare(strict_types=1);
@@ -45,6 +54,20 @@ function current_user(): ?array
 function is_logged_in(): bool
 {
     return current_user() !== null;
+}
+
+/**
+ * EN: Checks whether the current or provided user can moderate forum topics.
+ * RU: Проверяет, может ли текущий или переданный пользователь модерировать темы форума.
+ *
+ * @param array|null $user Authenticated user row / Строка авторизованного пользователя
+ * @return bool Moderator permission result / Результат проверки прав модерации
+ */
+function user_can_moderate(?array $user = null): bool
+{
+    $user ??= current_user();
+
+    return in_array((string)($user['role'] ?? ''), ['admin', 'moderator'], true);
 }
 
 function require_login_redirect(): void

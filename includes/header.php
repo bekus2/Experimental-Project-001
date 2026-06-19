@@ -1,7 +1,15 @@
 <?php
 /**
- * Общая «шапка» страницы. Подключается в начале каждого view.
- * Переменные перед include: $pageTitle (string), $activeNav (string).
+ * Проект: ВайбКод
+ * Файл: includes/header.php
+ * Автор: Beck Sarbassov
+ * Версия: 1.1.0
+ * Дата выпуска: 2026-06-16
+ * Последнее обновление: 2026-06-19
+ * Авторские права: © Beck Sarbassov. Все права защищены.
+ *
+ * EN: Renders the shared page header, navigation, search, and account menu.
+ * RU: Рендерит общую шапку страницы, навигацию, поиск и меню аккаунта.
  */
 
 declare(strict_types=1);
@@ -62,6 +70,7 @@ $me        = current_user();
                     <span class="user-chip-name"><?= e($me['username']) ?></span>
                     <div class="user-menu">
                         <a href="<?= url('profile.php?u=' . urlencode($me['username'])) ?>">Профиль</a>
+                        <a href="<?= url('settings.php') ?>">Настройки</a>
                         <a href="<?= url('new-topic.php') ?>">Создать тему</a>
                         <a href="<?= url('api/logout.php') ?>" class="danger">Выйти</a>
                     </div>

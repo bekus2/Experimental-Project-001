@@ -1,6 +1,15 @@
 <?php
 /**
- * Страница темы: все сообщения + форма ответа (AJAX).
+ * Проект: ВайбКод
+ * Файл: topic.php
+ * Автор: Beck Sarbassov
+ * Версия: 1.1.0
+ * Дата выпуска: 2026-06-16
+ * Последнее обновление: 2026-06-19
+ * Авторские права: © Beck Sarbassov. Все права защищены.
+ *
+ * EN: Displays a topic thread, posts, moderator controls, and the AJAX reply form.
+ * RU: Показывает тему, сообщения, панель модерации и AJAX-форму ответа.
  */
 
 declare(strict_types=1);
@@ -11,6 +20,7 @@ require_once __DIR__ . '/includes/render.php';
 $topicId = (int)($_GET['id'] ?? 0);
 $pdo     = db();
 $me      = current_user();
+$canModerate = user_can_moderate($me);
 
 $stmt = $pdo->prepare('
     SELECT t.*, c.title AS cat_title, c.slug AS cat_slug, c.icon AS cat_icon, c.accent AS cat_accent,
@@ -74,6 +84,29 @@ require __DIR__ . '/includes/header.php';
         <span><?= count($posts) ?> <?= plural(count($posts), 'сообщение', 'сообщения', 'сообщений') ?></span>
     </div>
 </div>
+
+<?php if ($canModerate): ?>
+    <div class="moderation-panel" data-topic-status>
+        <div>
+            <strong>Модерация темы</strong>
+            <span>Доступно администраторам и модераторам.</span>
+        </div>
+        <div class="moderation-actions">
+            <button type="button"
+                    class="btn btn-ghost btn-sm moderate-topic-btn"
+                    data-topic-id="<?= (int)$topic['id'] ?>"
+                    data-action="<?= (int)$topic['is_pinned'] === 1 ? 'unpin' : 'pin' ?>">
+                <?= (int)$topic['is_pinned'] === 1 ? 'Открепить' : 'Закрепить' ?>
+            </button>
+            <button type="button"
+                    class="btn btn-ghost btn-sm moderate-topic-btn"
+                    data-topic-id="<?= (int)$topic['id'] ?>"
+                    data-action="<?= (int)$topic['is_locked'] === 1 ? 'unlock' : 'lock' ?>">
+                <?= (int)$topic['is_locked'] === 1 ? 'Открыть ответы' : 'Закрыть ответы' ?>
+            </button>
+        </div>
+    </div>
+<?php endif; ?>
 
 <div id="post-list">
     <?php foreach ($posts as $post): ?>

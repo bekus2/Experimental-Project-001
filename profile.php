@@ -1,4 +1,17 @@
 <?php
+/**
+ * Проект: ВайбКод
+ * Файл: profile.php
+ * Автор: Beck Sarbassov
+ * Версия: 1.1.0
+ * Дата выпуска: 2026-06-16
+ * Последнее обновление: 2026-06-19
+ * Авторские права: © Beck Sarbassov. Все права защищены.
+ *
+ * EN: Displays a public user profile with activity statistics and recent topics.
+ * RU: Показывает публичный профиль пользователя со статистикой и последними темами.
+ */
+
 declare(strict_types=1);
 
 require_once __DIR__ . '/includes/auth.php';
@@ -19,6 +32,7 @@ if (!$user) {
     exit;
 }
 
+$me = current_user();
 $uid = (int)$user['id'];
 $topicCount = (int)$pdo->query("SELECT COUNT(*) FROM topics WHERE user_id = $uid")->fetchColumn();
 $postCount  = (int)$pdo->query("SELECT COUNT(*) FROM posts WHERE user_id = $uid")->fetchColumn();
@@ -48,6 +62,9 @@ require __DIR__ . '/includes/header.php';
         <h1><?= e($user['username']) ?> <span class="role-badge"><?= e($roleLabel) ?></span></h1>
         <p class="bio"><?= $user['bio'] !== '' ? e($user['bio']) : 'Этот вайбкодер пока без описания.' ?></p>
         <p class="bio" style="font-size:12px;color:var(--text-faint)">С нами с <?= date('d.m.Y', strtotime($user['created_at'])) ?></p>
+        <?php if ($me && (int)$me['id'] === $uid): ?>
+            <p class="profile-actions"><a class="btn btn-ghost btn-sm" href="<?= url('settings.php') ?>">Редактировать профиль</a></p>
+        <?php endif; ?>
     </div>
     <div class="profile-stats">
         <div><b><?= $topicCount ?></b><span>тем</span></div>

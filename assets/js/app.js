@@ -1,6 +1,15 @@
-/* ============================================================
-   ВайбКод — клиентская логика (jQuery + AJAX)
-   ============================================================ */
+/**
+ * Проект: ВайбКод
+ * Файл: assets/js/app.js
+ * Автор: Beck Sarbassov
+ * Версия: 1.1.0
+ * Дата выпуска: 2026-06-16
+ * Последнее обновление: 2026-06-19
+ * Авторские права: © Beck Sarbassov. Все права защищены.
+ *
+ * EN: Controls AJAX forms, topic moderation, profile settings, likes, and editor helpers.
+ * RU: Управляет AJAX-формами, модерацией тем, настройками профиля, лайками и редактором.
+ */
 (function ($) {
     'use strict';
 
@@ -78,6 +87,126 @@
 
     handleAuthForm('#login-form', 'login.php');
     handleAuthForm('#register-form', 'register.php');
+
+    /* ========================================================
+       Настройки профиля
+       ======================================================== */
+    (function () {
+        const $form = $('#profile-settings-form');
+        if (!$form.length) return;
+
+        const $bio = $form.find('[name="bio"]');
+        const $counter = $('#bio-counter');
+        const $color = $form.find('[name="avatar_color"]');
+        const $preview = $('.profile-avatar-preview');
+
+        function updatePreview() {
+            const color = $color.val();
+            $preview.css('--clr', color);
+            $counter.text(($bio.val() || '').length);
+        }
+
+        $bio.on('input', updatePreview);
+        $color.on('input change', updatePreview);
+        $('.color-swatch').on('click', function () {
+            $color.val($(this).data('color')).trigger('change');
+        });
+
+        $form.on('submit', function (e) {
+            e.preventDefault();
+            const $btn = $form.find('button[type="submit"]');
+            const $msg = $form.find('.form-msg');
+            const original = $btn.html();
+
+            $msg.removeClass('error success').hide();
+            $btn.prop('disabled', true).html('<span class="spinner"></span>');
+
+            post('update_profile.php', {
+                bio: $bio.val(),
+                avatar_color: $color.val()
+            })
+            .done(function (res) {
+                if (res.ok) {
+                    $msg.addClass('success').text(res.message || 'Профиль обновлен.').show();
+                    toast(res.message || 'Профиль обновлен.', 'ok');
+                    setTimeout(() => { window.location.href = res.redirect || BASE + 'index.php'; }, 700);
+                } else {
+                    $msg.addClass('error').text(res.error || 'Не удалось сохранить профиль.').show();
+                    $btn.prop('disabled', false).html(original);
+                }
+            })
+            .fail(function (xhr) {
+                const err = (xhr.responseJSON && xhr.responseJSON.error) || 'Ошибка сети.';
+                $msg.addClass('error').text(err).show();
+                $btn.prop('disabled', false).html(original);
+            });
+        });
+    })();
+
+    (function () {
+        const $form = $('#password-settings-form');
+        if (!$form.length) return;
+
+        $form.on('submit', function (e) {
+            e.preventDefault();
+            const $btn = $form.find('button[type="submit"]');
+            const $msg = $form.find('.form-msg');
+            const original = $btn.html();
+
+            $msg.removeClass('error success').hide();
+            $btn.prop('disabled', true).html('<span class="spinner"></span>');
+
+            post('change_password.php', {
+                current_password: $form.find('[name="current_password"]').val(),
+                new_password: $form.find('[name="new_password"]').val(),
+                confirm_password: $form.find('[name="confirm_password"]').val()
+            })
+            .done(function (res) {
+                if (res.ok) {
+                    $msg.addClass('success').text(res.message || 'Пароль обновлен.').show();
+                    toast(res.message || 'Пароль обновлен.', 'ok');
+                    $form.find('input[type="password"]').val('');
+                } else {
+                    $msg.addClass('error').text(res.error || 'Не удалось обновить пароль.').show();
+                }
+            })
+            .fail(function (xhr) {
+                const err = (xhr.responseJSON && xhr.responseJSON.error) || 'Ошибка сети.';
+                $msg.addClass('error').text(err).show();
+            })
+            .always(function () {
+                $btn.prop('disabled', false).html(original);
+            });
+        });
+    })();
+
+    /* ========================================================
+       Модерация темы: закрепление и закрытие
+       ======================================================== */
+    $(document).on('click', '.moderate-topic-btn', function () {
+        const $btn = $(this);
+        const original = $btn.html();
+
+        $btn.prop('disabled', true).html('<span class="spinner"></span>');
+        post('moderate_topic.php', {
+            topic_id: $btn.data('topic-id'),
+            action: $btn.data('action')
+        })
+        .done(function (res) {
+            if (res.ok) {
+                toast(res.message || 'Тема обновлена.', 'ok');
+                setTimeout(() => { window.location.reload(); }, 650);
+            } else {
+                toast(res.error || 'Не удалось обновить тему.', 'err');
+                $btn.prop('disabled', false).html(original);
+            }
+        })
+        .fail(function (xhr) {
+            const err = (xhr.responseJSON && xhr.responseJSON.error) || 'Ошибка сети.';
+            toast(err, 'err');
+            $btn.prop('disabled', false).html(original);
+        });
+    });
 
     /* ========================================================
        Создание темы (AJAX)
