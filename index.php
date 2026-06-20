@@ -3,9 +3,9 @@
  * Проект: ВайбКод
  * Файл: index.php
  * Автор: Beck Sarbassov
- * Версия: 1.1.0
+ * Версия: 1.2.0
  * Дата выпуска: 2026-06-16
- * Последнее обновление: 2026-06-19
+ * Последнее обновление: 2026-06-21
  * Авторские права: © Beck Sarbassov. Все права защищены.
  *
  * EN: Renders the forum homepage with categories, filters, insights, and topic listings.
@@ -22,10 +22,17 @@ $sortOptions = [
     'recent' => 'Сначала активные',
     'popular' => 'Популярные',
     'unanswered' => 'Без ответов',
+    'solved' => 'Решенные',
 ];
 $sort = (string)($_GET['sort'] ?? 'recent');
 if (!array_key_exists($sort, $sortOptions)) {
     $sort = 'recent';
+}
+
+$typeOptions = ['all' => 'Все типы'] + topic_type_options();
+$selectedType = (string)($_GET['type'] ?? 'all');
+if (!array_key_exists($selectedType, $typeOptions)) {
+    $selectedType = 'all';
 }
 
 $selectedCategory = max(0, (int)($_GET['cat'] ?? 0));
@@ -34,20 +41,21 @@ $selectedCategory = max(0, (int)($_GET['cat'] ?? 0));
 // RU: Основные счетчики для панели активности форума.
 $stats = [
     'topics' => (int)$pdo->query('SELECT COUNT(*) FROM topics')->fetchColumn(),
-    'posts'  => (int)$pdo->query('SELECT COUNT(*) FROM posts')->fetchColumn(),
+    'posts'  => (int)$pdo->query('SELECT COUNT(*) FROM posts WHERE is_deleted = 0')->fetchColumn(),
     'users'  => (int)$pdo->query('SELECT COUNT(*) FROM users')->fetchColumn(),
 ];
 
 $insights = [
-    'active_today' => (int)$pdo->query("SELECT COUNT(*) FROM posts WHERE created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)")->fetchColumn(),
-    'unanswered' => (int)$pdo->query('SELECT COUNT(*) FROM topics t WHERE (SELECT COUNT(*) FROM posts p WHERE p.topic_id = t.id) = 1')->fetchColumn(),
+    'active_today' => (int)$pdo->query("SELECT COUNT(*) FROM posts WHERE is_deleted = 0 AND created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)")->fetchColumn(),
+    'unanswered' => (int)$pdo->query('SELECT COUNT(*) FROM topics t WHERE (SELECT COUNT(*) FROM posts p WHERE p.topic_id = t.id AND p.is_deleted = 0) = 1')->fetchColumn(),
+    'solved' => (int)$pdo->query('SELECT COUNT(*) FROM topics WHERE is_solved = 1')->fetchColumn(),
     'locked' => (int)$pdo->query('SELECT COUNT(*) FROM topics WHERE is_locked = 1')->fetchColumn(),
 ];
 
 $categories = $pdo->query('
     SELECT c.*,
         (SELECT COUNT(*) FROM topics t WHERE t.category_id = c.id) AS topic_count,
-        (SELECT COUNT(*) FROM posts p JOIN topics t ON t.id = p.topic_id WHERE t.category_id = c.id) AS post_count
+        (SELECT COUNT(*) FROM posts p JOIN topics t ON t.id = p.topic_id WHERE t.category_id = c.id AND p.is_deleted = 0) AS post_count
     FROM categories c
     ORDER BY c.position ASC
 ')->fetchAll();
@@ -63,22 +71,29 @@ if ($selectedCategory > 0) {
     $where[] = 't.category_id = ?';
     $params[] = $selectedCategory;
 }
+if ($selectedType !== 'all') {
+    $where[] = 't.topic_type = ?';
+    $params[] = $selectedType;
+}
 if ($sort === 'unanswered') {
-    $where[] = '(SELECT COUNT(*) FROM posts p0 WHERE p0.topic_id = t.id) = 1';
+    $where[] = '(SELECT COUNT(*) FROM posts p0 WHERE p0.topic_id = t.id AND p0.is_deleted = 0) = 1';
+}
+if ($sort === 'solved') {
+    $where[] = 't.is_solved = 1';
 }
 
 $orderSql = match ($sort) {
     'popular' => 't.views DESC, replies DESC, t.last_post_at DESC',
-    'unanswered' => 't.last_post_at DESC',
+    'unanswered', 'solved' => 't.last_post_at DESC',
     default => 't.is_pinned DESC, t.last_post_at DESC',
 };
 
 $whereSql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 $stmt = $pdo->prepare("
-    SELECT t.id, t.title, t.is_pinned, t.is_locked, t.views, t.last_post_at,
+    SELECT t.id, t.title, t.topic_type, t.tags, t.is_solved, t.is_pinned, t.is_locked, t.views, t.last_post_at,
            c.title AS cat_title, c.slug AS cat_slug, c.accent AS cat_accent,
            u.username, u.avatar_color,
-           (SELECT COUNT(*) FROM posts p WHERE p.topic_id = t.id) - 1 AS replies
+           (SELECT COUNT(*) FROM posts p WHERE p.topic_id = t.id AND p.is_deleted = 0) - 1 AS replies
     FROM topics t
     JOIN categories c ON c.id = t.category_id
     JOIN users u ON u.id = t.user_id
@@ -92,7 +107,7 @@ $recent = $stmt->fetchAll();
 $topMembers = $pdo->query('
     SELECT u.username, u.avatar_color, u.role,
            (SELECT COUNT(*) FROM topics t WHERE t.user_id = u.id) AS topic_count,
-           (SELECT COUNT(*) FROM posts p WHERE p.user_id = u.id) AS post_count,
+           (SELECT COUNT(*) FROM posts p WHERE p.user_id = u.id AND p.is_deleted = 0) AS post_count,
            (SELECT COUNT(*) FROM post_likes pl JOIN posts p2 ON p2.id = pl.post_id WHERE p2.user_id = u.id) AS like_count
     FROM users u
     ORDER BY post_count DESC, topic_count DESC, like_count DESC
@@ -106,7 +121,7 @@ require __DIR__ . '/includes/header.php';
 
 <section class="hero">
     <h1>Общий форум для идей, вопросов и проектов.</h1>
-    <p>Создавайте темы, отвечайте без перезагрузки страницы, ищите обсуждения, редактируйте профиль и модерируйте важные ветки через понятные инструменты.</p>
+    <p>Создавайте вопросы, гайды и витрины проектов, подписывайтесь на темы, сохраняйте избранное, получайте уведомления и отмечайте полезные ответы как решение.</p>
     <div class="hero-actions">
         <?php if (is_logged_in()): ?>
             <a class="btn btn-primary btn-lg" href="<?= url('new-topic.php') ?>">Создать тему</a>
@@ -140,12 +155,17 @@ require __DIR__ . '/includes/header.php';
             <strong><?= (int)$insights['locked'] ?></strong>
             <p><?= plural((int)$insights['locked'], 'закрытая тема', 'закрытые темы', 'закрытых тем') ?></p>
         </article>
+        <article class="insight-card">
+            <span class="insight-label">Решения</span>
+            <strong><?= (int)$insights['solved'] ?></strong>
+            <p><?= plural((int)$insights['solved'], 'тема решена', 'темы решены', 'тем решено') ?></p>
+        </article>
     </div>
 
     <aside class="member-panel">
         <div class="panel-head">
             <h2>Активные участники</h2>
-            <a href="<?= url('search.php') ?>">Поиск</a>
+            <a href="<?= url('members.php') ?>">Все</a>
         </div>
         <div class="member-list">
             <?php foreach ($topMembers as $member): ?>
@@ -198,6 +218,14 @@ require __DIR__ . '/includes/header.php';
         </select>
     </label>
     <label>
+        <span>Тип темы</span>
+        <select name="type">
+            <?php foreach ($typeOptions as $value => $label): ?>
+                <option value="<?= e($value) ?>" <?= $selectedType === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+            <?php endforeach; ?>
+        </select>
+    </label>
+    <label>
         <span>Порядок</span>
         <select name="sort">
             <?php foreach ($sortOptions as $value => $label): ?>
@@ -226,14 +254,19 @@ require __DIR__ . '/includes/header.php';
                 <span class="avatar" style="--clr: <?= e($t['avatar_color']) ?>"><?= e(avatar_initial($t['username'])) ?></span>
                 <div class="topic-main">
                     <p class="topic-title">
+                        <?php if ($t['is_solved']): ?><span class="tag tag-solved">решено</span><?php endif; ?>
                         <?php if ($t['is_pinned']): ?><span class="tag tag-pin">закреплено</span><?php endif; ?>
                         <?php if ($t['is_locked']): ?><span class="tag tag-lock">закрыто</span><?php endif; ?>
+                        <span class="topic-type-pill"><?= e(topic_type_label($t['topic_type'])) ?></span>
                         <a href="<?= url('topic.php?id=' . (int)$t['id']) ?>"><?= e($t['title']) ?></a>
                     </p>
                     <p class="topic-sub">
                         <a href="<?= url('category.php?slug=' . urlencode($t['cat_slug'])) ?>" class="cat-pill"><?= e($t['cat_title']) ?></a>
                         <span>от <a href="<?= url('profile.php?u=' . urlencode($t['username'])) ?>"><?= e($t['username']) ?></a></span>
                         <span><?= e(time_ago($t['last_post_at'])) ?></span>
+                        <?php foreach (tags_to_array($t['tags']) as $tag): ?>
+                            <a class="tag-link" href="<?= url('tag.php?t=' . urlencode($tag)) ?>">#<?= e($tag) ?></a>
+                        <?php endforeach; ?>
                     </p>
                 </div>
                 <div class="topic-stats">

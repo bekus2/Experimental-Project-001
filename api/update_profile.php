@@ -3,9 +3,9 @@
  * Проект: ВайбКод
  * Файл: api/update_profile.php
  * Автор: Beck Sarbassov
- * Версия: 1.1.0
+ * Версия: 1.2.0
  * Дата выпуска: 2026-06-19
- * Последнее обновление: 2026-06-19
+ * Последнее обновление: 2026-06-21
  * Авторские права: © Beck Sarbassov. Все права защищены.
  *
  * EN: Updates the authenticated user's public bio and avatar color.

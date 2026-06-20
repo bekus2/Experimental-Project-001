@@ -1,3 +1,17 @@
+<?php
+/**
+ * Проект: ВайбКод
+ * Файл: includes/footer.php
+ * Автор: Beck Sarbassov
+ * Версия: 1.2.0
+ * Дата выпуска: 2026-06-16
+ * Последнее обновление: 2026-06-21
+ * Авторские права: © Beck Sarbassov. Все права защищены.
+ *
+ * EN: Renders the shared footer, useful navigation links, toast host, and script includes.
+ * RU: Рендерит общий футер, полезные ссылки, контейнер уведомлений и подключение скриптов.
+ */
+?>
 </main>
 
 <footer class="site-footer">
@@ -11,8 +25,14 @@
         </div>
         <div class="footer-links">
             <a href="<?= url('index.php') ?>">Форум</a>
+            <a href="<?= url('members.php') ?>">Участники</a>
             <a href="<?= url('search.php') ?>">Поиск</a>
-            <a href="<?= url('register.php') ?>">Присоединиться</a>
+            <?php if (is_logged_in()): ?>
+                <a href="<?= url('notifications.php') ?>">Уведомления</a>
+                <a href="<?= url('bookmarks.php') ?>">Закладки</a>
+            <?php else: ?>
+                <a href="<?= url('register.php') ?>">Присоединиться</a>
+            <?php endif; ?>
         </div>
         <p class="footer-copy">© <?= date('Y') ?> <?= e(SITE_NAME) ?>. Стек: PHP&nbsp;8.3 · MySQL · jQuery · AJAX.</p>
     </div>

@@ -3,9 +3,9 @@
  * Проект: ВайбКод
  * Файл: category.php
  * Автор: Beck Sarbassov
- * Версия: 1.1.0
+ * Версия: 1.2.0
  * Дата выпуска: 2026-06-16
- * Последнее обновление: 2026-06-19
+ * Последнее обновление: 2026-06-21
  * Авторские права: © Beck Sarbassov. Все права защищены.
  *
  * EN: Displays one forum category with sorted topic lists and pagination.
@@ -23,10 +23,17 @@ $sortOptions = [
     'recent' => 'Сначала активные',
     'popular' => 'Популярные',
     'unanswered' => 'Без ответов',
+    'solved' => 'Решенные',
 ];
 $sort = (string)($_GET['sort'] ?? 'recent');
 if (!array_key_exists($sort, $sortOptions)) {
     $sort = 'recent';
+}
+
+$typeOptions = ['all' => 'Все типы'] + topic_type_options();
+$selectedType = (string)($_GET['type'] ?? 'all');
+if (!array_key_exists($selectedType, $typeOptions)) {
+    $selectedType = 'all';
 }
 
 $stmt = $pdo->prepare('SELECT * FROM categories WHERE slug = ?');
@@ -44,11 +51,21 @@ if (!$category) {
 
 // EN: Pagination count follows the same filter as the visible topic list.
 // RU: Счетчик пагинации использует тот же фильтр, что и видимый список тем.
-$extraWhere = $sort === 'unanswered'
-    ? ' AND (SELECT COUNT(*) FROM posts p0 WHERE p0.topic_id = t.id) = 1'
-    : '';
-$totalStmt = $pdo->prepare('SELECT COUNT(*) FROM topics t WHERE t.category_id = ?' . $extraWhere);
-$totalStmt->execute([(int)$category['id']]);
+$extraWhere = [];
+$params = [(int)$category['id']];
+if ($selectedType !== 'all') {
+    $extraWhere[] = 't.topic_type = ?';
+    $params[] = $selectedType;
+}
+if ($sort === 'unanswered') {
+    $extraWhere[] = '(SELECT COUNT(*) FROM posts p0 WHERE p0.topic_id = t.id AND p0.is_deleted = 0) = 1';
+}
+if ($sort === 'solved') {
+    $extraWhere[] = 't.is_solved = 1';
+}
+$extraSql = $extraWhere ? ' AND ' . implode(' AND ', $extraWhere) : '';
+$totalStmt = $pdo->prepare('SELECT COUNT(*) FROM topics t WHERE t.category_id = ?' . $extraSql);
+$totalStmt->execute($params);
 $total = (int)$totalStmt->fetchColumn();
 $pages = max(1, (int)ceil($total / TOPICS_PER_PAGE));
 $page  = max(1, min($pages, (int)($_GET['p'] ?? 1)));
@@ -56,7 +73,7 @@ $offset = ($page - 1) * TOPICS_PER_PAGE;
 
 $orderSql = match ($sort) {
     'popular' => 't.views DESC, replies DESC, t.last_post_at DESC',
-    'unanswered' => 't.last_post_at DESC',
+    'unanswered', 'solved' => 't.last_post_at DESC',
     default => 't.is_pinned DESC, t.last_post_at DESC',
 };
 
@@ -64,16 +81,16 @@ $limit = (int)TOPICS_PER_PAGE;
 $offset = (int)$offset;
 
 $stmt = $pdo->prepare("
-    SELECT t.id, t.title, t.is_pinned, t.is_locked, t.views, t.created_at, t.last_post_at,
+    SELECT t.id, t.title, t.topic_type, t.tags, t.is_solved, t.is_pinned, t.is_locked, t.views, t.created_at, t.last_post_at,
            u.username, u.avatar_color,
-           (SELECT COUNT(*) FROM posts p WHERE p.topic_id = t.id) - 1 AS replies
+           (SELECT COUNT(*) FROM posts p WHERE p.topic_id = t.id AND p.is_deleted = 0) - 1 AS replies
     FROM topics t
     JOIN users u ON u.id = t.user_id
-    WHERE t.category_id = ? {$extraWhere}
+    WHERE t.category_id = ? {$extraSql}
     ORDER BY {$orderSql}
     LIMIT {$limit} OFFSET {$offset}
 ");
-$stmt->execute([$category['id']]);
+$stmt->execute($params);
 $topics = $stmt->fetchAll();
 
 $pageTitle = $category['title'];
@@ -95,6 +112,14 @@ require __DIR__ . '/includes/header.php';
 
 <form class="filter-bar" action="<?= url('category.php') ?>" method="get">
     <input type="hidden" name="slug" value="<?= e($slug) ?>">
+    <label>
+        <span>Тип темы</span>
+        <select name="type">
+            <?php foreach ($typeOptions as $value => $label): ?>
+                <option value="<?= e($value) ?>" <?= $selectedType === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+            <?php endforeach; ?>
+        </select>
+    </label>
     <label>
         <span>Порядок</span>
         <select name="sort">
@@ -122,14 +147,19 @@ require __DIR__ . '/includes/header.php';
                 <span class="avatar" style="--clr: <?= e($t['avatar_color']) ?>"><?= e(avatar_initial($t['username'])) ?></span>
                 <div class="topic-main">
                     <p class="topic-title">
-                        <?php if ($t['is_pinned']): ?><span class="tag tag-pin">📌</span><?php endif; ?>
-                        <?php if ($t['is_locked']): ?><span class="tag tag-lock">🔒</span><?php endif; ?>
+                        <?php if ($t['is_solved']): ?><span class="tag tag-solved">решено</span><?php endif; ?>
+                        <?php if ($t['is_pinned']): ?><span class="tag tag-pin">закреплено</span><?php endif; ?>
+                        <?php if ($t['is_locked']): ?><span class="tag tag-lock">закрыто</span><?php endif; ?>
+                        <span class="topic-type-pill"><?= e(topic_type_label($t['topic_type'])) ?></span>
                         <a href="<?= url('topic.php?id=' . (int)$t['id']) ?>"><?= e($t['title']) ?></a>
                     </p>
                     <p class="topic-sub">
                         <span>от <a href="<?= url('profile.php?u=' . urlencode($t['username'])) ?>"><?= e($t['username']) ?></a></span>
                         <span>создано <?= e(time_ago($t['created_at'])) ?></span>
                         <span>активность <?= e(time_ago($t['last_post_at'])) ?></span>
+                        <?php foreach (tags_to_array($t['tags']) as $tag): ?>
+                            <a class="tag-link" href="<?= url('tag.php?t=' . urlencode($tag)) ?>">#<?= e($tag) ?></a>
+                        <?php endforeach; ?>
                     </p>
                 </div>
                 <div class="topic-stats">
@@ -146,7 +176,7 @@ require __DIR__ . '/includes/header.php';
                 <?php if ($i === $page): ?>
                     <span class="current"><?= $i ?></span>
                 <?php else: ?>
-                    <a href="<?= url('category.php?slug=' . urlencode($slug) . '&sort=' . urlencode($sort) . '&p=' . $i) ?>"><?= $i ?></a>
+                    <a href="<?= url('category.php?slug=' . urlencode($slug) . '&type=' . urlencode($selectedType) . '&sort=' . urlencode($sort) . '&p=' . $i) ?>"><?= $i ?></a>
                 <?php endif; ?>
             <?php endfor; ?>
         </nav>

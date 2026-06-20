@@ -3,9 +3,9 @@
  * Проект: ВайбКод
  * Файл: api/change_password.php
  * Автор: Beck Sarbassov
- * Версия: 1.1.0
+ * Версия: 1.2.0
  * Дата выпуска: 2026-06-19
- * Последнее обновление: 2026-06-19
+ * Последнее обновление: 2026-06-21
  * Авторские права: © Beck Sarbassov. Все права защищены.
  *
  * EN: Allows an authenticated user to change their password after verifying the current one.

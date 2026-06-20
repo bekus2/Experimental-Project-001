@@ -3,9 +3,9 @@
  * Проект: ВайбКод
  * Файл: install.php
  * Автор: Beck Sarbassov
- * Версия: 1.1.0
+ * Версия: 1.2.0
  * Дата выпуска: 2026-06-16
- * Последнее обновление: 2026-06-19
+ * Последнее обновление: 2026-06-21
  * Авторские права: © Beck Sarbassov. Все права защищены.
  *
  * EN: Creates the database schema and seed users/topics for local installation.
@@ -88,23 +88,26 @@ if ($topicCount === 0) {
     $catId = fn(string $slug) => (int)$pdo->query("SELECT id FROM categories WHERE slug = '$slug'")->fetchColumn();
 
     $seedTopics = [
-        ['vibe-coding', 'neon_dev', 'Какой ваш идеальный плейлист для глубокого кодинга?',
-            "Собираю коллективный плейлист для состояния потока 🌊\n\nУ меня обычно играет synthwave и немного lo-fi. А что слушаете вы, когда залипаете в задачу на пару часов?\n\nКидайте ссылки и жанры!"],
-        ['ai-tools', 'promptsmith', 'Делимся лучшими промптами для рефакторинга',
-            "Заметил, что качество ответа сильно зависит от формулировки.\n\nВот мой шаблон:\n```\nОтрефактори этот код, сохранив поведение.\nОбъясни каждое изменение одной строкой.\n```\n\nА какие приёмы используете вы?"],
-        ['showcase', 'lo_fi_lucy', 'Запилила минималистичный pomodoro-таймер на ванильном JS',
-            "Без фреймворков, чистый **HTML/CSS/JS**, тёмная тема и приятные звуки.\n\nДелала за один вечер под lo-fi. Дайте фидбек по UX, если не лень 🙌"],
+        ['vibe-coding', 'neon_dev', 'Какой ваш идеальный плейлист для глубокого кодинга?', 'discussion', 'музыка,workflow,фокус',
+            "Собираю коллективный плейлист для состояния потока.\n\nУ меня обычно играет synthwave и немного lo-fi. А что слушаете вы, когда залипаете в задачу на пару часов?\n\nКидайте ссылки и жанры!"],
+        ['ai-tools', 'promptsmith', 'Делимся лучшими промптами для рефакторинга', 'guide', 'ai,промпты,рефакторинг',
+            "Заметил, что качество ответа сильно зависит от формулировки.\n\nВот мой шаблон:\n```\nОтрефактори этот код, сохранив поведение.\nОбъясни каждое изменение одной строкой.\n```\n\nА какие приемы используете вы?"],
+        ['showcase', 'lo_fi_lucy', 'Запилила минималистичный pomodoro-таймер на ванильном JS', 'showcase', 'javascript,showcase,ux',
+            "Без фреймворков, чистый **HTML/CSS/JS**, светлая тема и приятные звуки.\n\nДелала за один вечер под lo-fi. Дайте фидбек по UX."],
+        ['ai-tools', 'beck_admin', 'Как правильно защитить AJAX-действия на форуме?', 'question', 'security,csrf,php',
+            "Нужен короткий чеклист для действий вроде лайков, жалоб и редактирования постов.\n\nПока думаю про CSRF, проверку сессии, роли и серверную валидацию. Что еще добавить?"],
     ];
 
-    $insT = $pdo->prepare('INSERT INTO topics (category_id, user_id, title, slug) VALUES (?, ?, ?, ?)');
+    $insT = $pdo->prepare('INSERT INTO topics (category_id, user_id, title, slug, topic_type, tags) VALUES (?, ?, ?, ?, ?, ?)');
     $insP = $pdo->prepare('INSERT INTO posts (topic_id, user_id, body) VALUES (?, ?, ?)');
 
     require_once __DIR__ . '/includes/functions.php';
 
     foreach ($seedTopics as $t) {
-        $insT->execute([$catId($t[0]), $ids[$t[1]], $t[2], slugify($t[2])]);
+        $insT->execute([$catId($t[0]), $ids[$t[1]], $t[2], slugify($t[2]), $t[3], normalize_tags($t[4])]);
         $tid = (int)$pdo->lastInsertId();
-        $insP->execute([$tid, $ids[$t[1]], $t[3]]);
+        $insP->execute([$tid, $ids[$t[1]], $t[5]]);
+        $pdo->prepare('INSERT IGNORE INTO topic_subscriptions (topic_id, user_id) VALUES (?, ?)')->execute([$tid, $ids[$t[1]]]);
     }
 
     // Пара ответов для живости
@@ -112,6 +115,20 @@ if ($topicCount === 0) {
     $insP->execute([$firstTopic, $ids['lo_fi_lucy'], 'lo-fi бесконечный стрим — мой выбор. Иногда дождь + клавиши 🌧️']);
     $insP->execute([$firstTopic, $ids['promptsmith'], 'А я под dnb разгоняюсь, когда дедлайн горит 😅']);
     $pdo->prepare('UPDATE topics SET last_post_at = NOW() WHERE id = ?')->execute([$firstTopic]);
+
+    $questionTopic = (int)$pdo->query("SELECT id FROM topics WHERE topic_type = 'question' ORDER BY id ASC LIMIT 1")->fetchColumn();
+    if ($questionTopic > 0) {
+        $insP->execute([
+            $questionTopic,
+            $ids['promptsmith'],
+            'Минимальный набор: CSRF для каждого POST, проверка роли на сервере, prepared statements, ограничение длины ввода и безопасный HTML-вывод через escaping.'
+        ]);
+        $solutionPostId = (int)$pdo->lastInsertId();
+        $pdo->prepare('UPDATE topics SET is_solved = 1, solved_post_id = ?, last_post_at = NOW() WHERE id = ?')
+            ->execute([$solutionPostId, $questionTopic]);
+        $pdo->prepare('INSERT IGNORE INTO topic_subscriptions (topic_id, user_id) VALUES (?, ?), (?, ?)')
+            ->execute([$questionTopic, $ids['beck_admin'], $questionTopic, $ids['promptsmith']]);
+    }
 
     out('✓ Добавлены стартовые темы.', $nl);
 } else {

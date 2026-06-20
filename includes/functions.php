@@ -1,6 +1,15 @@
 <?php
 /**
- * Вспомогательные функции общего назначения.
+ * Проект: ВайбКод
+ * Файл: includes/functions.php
+ * Автор: Beck Sarbassov
+ * Версия: 1.2.0
+ * Дата выпуска: 2026-06-16
+ * Последнее обновление: 2026-06-21
+ * Авторские права: © Beck Sarbassov. Все права защищены.
+ *
+ * EN: Provides shared helpers for escaping, URLs, forum metadata, notifications, and permissions.
+ * RU: Содержит общие helpers для экранирования, URL, метаданных форума, уведомлений и прав доступа.
  */
 
 declare(strict_types=1);
@@ -80,6 +89,123 @@ function plural(int $n, string $one, string $few, string $many): string
 function avatar_initial(string $username): string
 {
     return mb_strtoupper(mb_substr($username, 0, 1, 'UTF-8'), 'UTF-8');
+}
+
+/**
+ * EN: Available topic type labels for creation, filters, and badges.
+ * RU: Доступные типы тем для создания, фильтров и бейджей.
+ *
+ * @return array<string,string> Topic type labels / Названия типов тем
+ */
+function topic_type_options(): array
+{
+    return [
+        'discussion' => 'Обсуждение',
+        'question' => 'Вопрос',
+        'showcase' => 'Проект',
+        'guide' => 'Гайд',
+    ];
+}
+
+function topic_type_label(string $type): string
+{
+    return topic_type_options()[$type] ?? topic_type_options()['discussion'];
+}
+
+/**
+ * EN: Normalizes comma-separated tags to a compact, unique storage string.
+ * RU: Нормализует теги через запятую в компактную уникальную строку для хранения.
+ */
+function normalize_tags(string $tags): string
+{
+    $items = preg_split('/[,#]+/u', mb_strtolower($tags, 'UTF-8')) ?: [];
+    $clean = [];
+
+    foreach ($items as $tag) {
+        $tag = trim((string)$tag);
+        $tag = preg_replace('/[^\p{L}\p{N}_-]+/u', '-', $tag);
+        $tag = trim((string)$tag, '-_');
+        if ($tag !== '' && mb_strlen($tag, 'UTF-8') <= 24) {
+            $clean[$tag] = $tag;
+        }
+        if (count($clean) >= 6) {
+            break;
+        }
+    }
+
+    return implode(',', array_values($clean));
+}
+
+/**
+ * EN: Converts stored tag string to a display-ready list.
+ * RU: Преобразует строку тегов из базы в список для вывода.
+ *
+ * @return list<string>
+ */
+function tags_to_array(?string $tags): array
+{
+    $tags = trim((string)$tags);
+    if ($tags === '') {
+        return [];
+    }
+
+    return array_values(array_filter(array_map('trim', explode(',', $tags))));
+}
+
+function excerpt(string $text, int $limit = 140): string
+{
+    $plain = trim(preg_replace('/\s+/u', ' ', strip_tags($text)) ?? '');
+    if (mb_strlen($plain, 'UTF-8') <= $limit) {
+        return $plain;
+    }
+
+    return rtrim(mb_substr($plain, 0, $limit - 1, 'UTF-8')) . '…';
+}
+
+/**
+ * EN: Checks whether a user can edit a post.
+ * RU: Проверяет, может ли пользователь редактировать сообщение.
+ */
+function user_can_edit_post(?array $user, array $post): bool
+{
+    if (!$user || !empty($post['is_deleted'])) {
+        return false;
+    }
+
+    return user_can_moderate($user) || (int)$user['id'] === (int)$post['user_id'];
+}
+
+/**
+ * EN: Checks whether a user can soft-delete a post.
+ * RU: Проверяет, может ли пользователь мягко удалить сообщение.
+ */
+function user_can_delete_post(?array $user, array $post): bool
+{
+    return user_can_edit_post($user, $post);
+}
+
+/**
+ * EN: Creates a notification for a user unless the user is the actor.
+ * RU: Создает уведомление пользователю, если действие сделал не он сам.
+ */
+function create_notification(int $userId, ?int $topicId, ?int $postId, string $type, string $message, ?int $actorId = null): void
+{
+    if ($actorId !== null && $actorId === $userId) {
+        return;
+    }
+
+    $stmt = db()->prepare(
+        'INSERT INTO notifications (user_id, topic_id, post_id, type, message) VALUES (?, ?, ?, ?, ?)'
+    );
+    $stmt->execute([$userId, $topicId, $postId, $type, mb_substr($message, 0, 255, 'UTF-8')]);
+}
+
+function unread_notifications_count(int $userId): int
+{
+    $stmt = db()->prepare('SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = 0');
+    $stmt->execute([$userId]);
+
+    return (int)$stmt->fetchColumn();
 }
 
 /**

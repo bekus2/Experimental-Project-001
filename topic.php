@@ -3,9 +3,9 @@
  * Проект: ВайбКод
  * Файл: topic.php
  * Автор: Beck Sarbassov
- * Версия: 1.1.0
+ * Версия: 1.2.0
  * Дата выпуска: 2026-06-16
- * Последнее обновление: 2026-06-19
+ * Последнее обновление: 2026-06-21
  * Авторские права: © Beck Sarbassov. Все права защищены.
  *
  * EN: Displays a topic thread, posts, moderator controls, and the AJAX reply form.
@@ -42,6 +42,30 @@ if (!$topic) {
     exit;
 }
 
+$topicTags = tags_to_array($topic['tags'] ?? '');
+$isBookmarked = false;
+$isSubscribed = false;
+$bookmarkCount = 0;
+$subscriberCount = 0;
+
+if ($me) {
+    $stmt = $pdo->prepare('SELECT 1 FROM topic_bookmarks WHERE topic_id = ? AND user_id = ?');
+    $stmt->execute([$topicId, (int)$me['id']]);
+    $isBookmarked = (bool)$stmt->fetchColumn();
+
+    $stmt = $pdo->prepare('SELECT 1 FROM topic_subscriptions WHERE topic_id = ? AND user_id = ?');
+    $stmt->execute([$topicId, (int)$me['id']]);
+    $isSubscribed = (bool)$stmt->fetchColumn();
+}
+
+$stmt = $pdo->prepare('SELECT COUNT(*) FROM topic_bookmarks WHERE topic_id = ?');
+$stmt->execute([$topicId]);
+$bookmarkCount = (int)$stmt->fetchColumn();
+
+$stmt = $pdo->prepare('SELECT COUNT(*) FROM topic_subscriptions WHERE topic_id = ?');
+$stmt->execute([$topicId]);
+$subscriberCount = (int)$stmt->fetchColumn();
+
 // +1 просмотр (без точной защиты от накрутки — достаточно для демо)
 $pdo->prepare('UPDATE topics SET views = views + 1 WHERE id = ?')->execute([$topicId]);
 
@@ -51,17 +75,20 @@ $likeMeJoin = $me
     : '0';
 
 $stmt = $pdo->prepare("
-    SELECT p.id, p.body, p.created_at, p.edited_at,
+    SELECT p.id, p.topic_id, p.user_id, p.body, p.created_at, p.edited_at, p.is_deleted,
+           t.user_id AS topic_author_id, t.solved_post_id,
            u.username, u.avatar_color, u.role, u.created_at AS user_created_at,
            (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) AS like_count,
            $likeMeJoin AS liked_by_me
     FROM posts p
+    JOIN topics t ON t.id = p.topic_id
     JOIN users u ON u.id = p.user_id
     WHERE p.topic_id = ?
     ORDER BY p.id ASC
 ");
 $stmt->execute([$topicId]);
 $posts = $stmt->fetchAll();
+$visiblePostCount = count(array_filter($posts, static fn(array $post): bool => empty($post['is_deleted'])));
 
 $pageTitle = $topic['title'];
 require __DIR__ . '/includes/header.php';
@@ -75,14 +102,39 @@ require __DIR__ . '/includes/header.php';
     <h1>
         <?php if ($topic['is_pinned']): ?><span class="tag tag-pin">📌 закреплено</span> <?php endif; ?>
         <?php if ($topic['is_locked']): ?><span class="tag tag-lock">🔒 закрыто</span> <?php endif; ?>
+        <?php if ($topic['is_solved']): ?><span class="tag tag-solved">✓ решено</span> <?php endif; ?>
         <?= e($topic['title']) ?>
     </h1>
+    <div class="topic-badges">
+        <span class="topic-type-pill"><?= e(topic_type_label((string)$topic['topic_type'])) ?></span>
+        <?php foreach ($topicTags as $tag): ?>
+            <a class="tag-link" href="<?= url('tag.php?t=' . urlencode($tag)) ?>">#<?= e($tag) ?></a>
+        <?php endforeach; ?>
+    </div>
     <div class="meta">
         <span>автор <strong><?= e($topic['author']) ?></strong></span>
         <span><?= e(time_ago($topic['created_at'])) ?></span>
         <span><?= (int)$topic['views'] ?> <?= plural((int)$topic['views'], 'просмотр', 'просмотра', 'просмотров') ?></span>
-        <span><?= count($posts) ?> <?= plural(count($posts), 'сообщение', 'сообщения', 'сообщений') ?></span>
+        <span><?= $visiblePostCount ?> <?= plural($visiblePostCount, 'сообщение', 'сообщения', 'сообщений') ?></span>
+        <span><?= $bookmarkCount ?> <?= plural($bookmarkCount, 'закладка', 'закладки', 'закладок') ?></span>
+        <span><?= $subscriberCount ?> <?= plural($subscriberCount, 'подписчик', 'подписчика', 'подписчиков') ?></span>
     </div>
+    <?php if ($me): ?>
+        <div class="topic-actions">
+            <button type="button"
+                    class="btn btn-ghost btn-sm topic-preference-btn <?= $isBookmarked ? 'active' : '' ?>"
+                    data-topic-id="<?= (int)$topic['id'] ?>"
+                    data-type="bookmark">
+                <?= $isBookmarked ? 'В закладках' : 'В закладки' ?>
+            </button>
+            <button type="button"
+                    class="btn btn-ghost btn-sm topic-preference-btn <?= $isSubscribed ? 'active' : '' ?>"
+                    data-topic-id="<?= (int)$topic['id'] ?>"
+                    data-type="subscribe">
+                <?= $isSubscribed ? 'Подписка включена' : 'Подписаться' ?>
+            </button>
+        </div>
+    <?php endif; ?>
 </div>
 
 <?php if ($canModerate): ?>
@@ -129,7 +181,8 @@ require __DIR__ . '/includes/header.php';
                     <button type="button" data-wrap="`" title="Код">&lt;/&gt;</button>
                     <button type="button" data-wrap="code" title="Блок кода">{ }</button>
                 </div>
-                <textarea name="body" placeholder="Поделись мыслями… Поддерживается **жирный**, *курсив*, `код` и ```блоки```" required></textarea>
+                <textarea name="body" data-draft-key="reply-topic-<?= (int)$topic['id'] ?>" placeholder="Поделись мыслями… Поддерживается **жирный**, *курсив*, `код` и ```блоки```" required></textarea>
+                <p class="hint draft-status">Черновик ответа сохраняется в этом браузере автоматически.</p>
             </div>
             <button type="submit" class="btn btn-primary">Отправить ответ</button>
         </form>

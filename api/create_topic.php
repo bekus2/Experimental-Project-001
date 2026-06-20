@@ -1,6 +1,15 @@
 <?php
 /**
- * AJAX: создание новой темы + первого сообщения.
+ * Проект: ВайбКод
+ * Файл: api/create_topic.php
+ * Автор: Beck Sarbassov
+ * Версия: 1.2.0
+ * Дата выпуска: 2026-06-16
+ * Последнее обновление: 2026-06-21
+ * Авторские права: © Beck Sarbassov. Все права защищены.
+ *
+ * EN: Creates a topic with type, tags, first post, and initial author subscription.
+ * RU: Создает тему с типом, тегами, первым сообщением и стартовой подпиской автора.
  */
 
 declare(strict_types=1);
@@ -20,6 +29,12 @@ if (!$me) {
 $categoryId = (int)($_POST['category_id'] ?? 0);
 $title      = trim((string)($_POST['title'] ?? ''));
 $body       = trim((string)($_POST['body'] ?? ''));
+$topicType  = (string)($_POST['topic_type'] ?? 'discussion');
+$tags       = normalize_tags((string)($_POST['tags'] ?? ''));
+
+if (!array_key_exists($topicType, topic_type_options())) {
+    $topicType = 'discussion';
+}
 
 if (mb_strlen($title) < 5 || mb_strlen($title) > 160) {
     json_error('Заголовок должен быть от 5 до 160 символов.');
@@ -42,15 +57,18 @@ try {
     $pdo->beginTransaction();
 
     $stmt = $pdo->prepare(
-        'INSERT INTO topics (category_id, user_id, title, slug) VALUES (?, ?, ?, ?)'
+        'INSERT INTO topics (category_id, user_id, title, slug, topic_type, tags) VALUES (?, ?, ?, ?, ?, ?)'
     );
-    $stmt->execute([$categoryId, $me['id'], $title, $slug]);
+    $stmt->execute([$categoryId, $me['id'], $title, $slug, $topicType, $tags]);
     $topicId = (int)$pdo->lastInsertId();
 
     $stmt = $pdo->prepare(
         'INSERT INTO posts (topic_id, user_id, body) VALUES (?, ?, ?)'
     );
     $stmt->execute([$topicId, $me['id'], $body]);
+
+    $stmt = $pdo->prepare('INSERT INTO topic_subscriptions (topic_id, user_id) VALUES (?, ?)');
+    $stmt->execute([$topicId, $me['id']]);
 
     $pdo->commit();
 } catch (PDOException $e) {

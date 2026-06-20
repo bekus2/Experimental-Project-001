@@ -2,9 +2,9 @@
  * Проект: ВайбКод
  * Файл: assets/js/app.js
  * Автор: Beck Sarbassov
- * Версия: 1.1.0
+ * Версия: 1.2.0
  * Дата выпуска: 2026-06-16
- * Последнее обновление: 2026-06-19
+ * Последнее обновление: 2026-06-21
  * Авторские права: © Beck Sarbassov. Все права защищены.
  *
  * EN: Controls AJAX forms, topic moderation, profile settings, likes, and editor helpers.
@@ -45,6 +45,51 @@
             headers: { 'X-CSRF-Token': CSRF }
         });
     }
+
+    function draftStorageKey(key) {
+        return 'vibecode:draft:' + key;
+    }
+
+    function clearDrafts($scope) {
+        $scope.find('[data-draft-key]').each(function () {
+            try {
+                localStorage.removeItem(draftStorageKey($(this).data('draft-key')));
+            } catch (err) {
+                // EN: Draft storage is optional and must not block posting.
+                // RU: Хранилище черновиков необязательно и не должно мешать публикации.
+            }
+        });
+    }
+
+    /* ---------- Автосохранение черновиков ---------- */
+    $('[data-draft-key]').each(function () {
+        const $field = $(this);
+        const key = draftStorageKey($field.data('draft-key'));
+        const $status = $field.closest('.field').find('.draft-status');
+        let timer = null;
+
+        try {
+            const saved = localStorage.getItem(key);
+            if (saved && !$field.val()) {
+                $field.val(saved);
+                $status.text('Черновик восстановлен из этого браузера.');
+            }
+        } catch (err) {
+            return;
+        }
+
+        $field.on('input', function () {
+            clearTimeout(timer);
+            timer = setTimeout(function () {
+                try {
+                    localStorage.setItem(key, $field.val());
+                    $status.text('Черновик сохранен автоматически.');
+                } catch (err) {
+                    $status.text('Черновик не сохранен: браузер ограничил локальное хранилище.');
+                }
+            }, 420);
+        });
+    });
 
     /* ========================================================
        Формы авторизации / регистрации (AJAX)
@@ -226,11 +271,14 @@
 
             post('create_topic.php', {
                 category_id: $form.find('[name="category_id"]').val(),
+                topic_type: $form.find('[name="topic_type"]').val(),
+                tags: $form.find('[name="tags"]').val(),
                 title: $form.find('[name="title"]').val(),
                 body: $form.find('[name="body"]').val()
             })
             .done(function (res) {
                 if (res.ok) {
+                    clearDrafts($form);
                     toast('Тема создана 🎉', 'ok');
                     setTimeout(() => { window.location.href = res.redirect; }, 500);
                 } else {
@@ -278,6 +326,7 @@
                     $('#post-list').append($node);
                     $node.fadeIn(350);
                     $body.val('');
+                    clearDrafts($form);
                     toast('Ответ опубликован ✨', 'ok');
                     $('html, body').animate({ scrollTop: $node.offset().top - 80 }, 450);
                 } else {
@@ -320,6 +369,220 @@
             }
         })
         .fail(function () { toast('Ошибка сети', 'err'); });
+    });
+
+    /* ========================================================
+       Избранное, подписки, решения, жалобы и уведомления
+       ======================================================== */
+    $(document).on('click', '.topic-preference-btn', function () {
+        const $btn = $(this);
+        const type = $btn.data('type');
+        const original = $btn.text();
+
+        $btn.prop('disabled', true);
+        post('toggle_topic_preference.php', {
+            topic_id: $btn.data('topic-id'),
+            type: type
+        })
+        .done(function (res) {
+            if (!res.ok) {
+                toast(res.error || 'Не удалось обновить тему.', 'err');
+                return;
+            }
+            $btn.toggleClass('active', !!res.active);
+            if (type === 'bookmark') {
+                $btn.text(res.active ? 'В закладках' : 'В закладки');
+            } else {
+                $btn.text(res.active ? 'Подписка включена' : 'Подписаться');
+            }
+            toast(res.message || 'Готово.', 'ok');
+        })
+        .fail(function (xhr) {
+            const err = (xhr.responseJSON && xhr.responseJSON.error) || 'Ошибка сети.';
+            toast(err, 'err');
+            $btn.text(original);
+        })
+        .always(function () {
+            $btn.prop('disabled', false);
+        });
+    });
+
+    $(document).on('click', '.solve-post-btn', function () {
+        const $btn = $(this);
+        $btn.prop('disabled', true);
+        post('mark_solved.php', {
+            topic_id: $btn.data('topic-id'),
+            post_id: $btn.data('post-id'),
+            action: $btn.data('action')
+        })
+        .done(function (res) {
+            if (res.ok) {
+                toast(res.message || 'Статус решения обновлен.', 'ok');
+                setTimeout(() => window.location.reload(), 500);
+            } else {
+                toast(res.error || 'Не удалось обновить решение.', 'err');
+                $btn.prop('disabled', false);
+            }
+        })
+        .fail(function (xhr) {
+            const err = (xhr.responseJSON && xhr.responseJSON.error) || 'Ошибка сети.';
+            toast(err, 'err');
+            $btn.prop('disabled', false);
+        });
+    });
+
+    $(document).on('click', '.edit-post-btn', function () {
+        const $post = $(this).closest('.post');
+        $post.find('.post-content').hide();
+        $post.find('.inline-edit-form').removeAttr('hidden').hide().slideDown(160);
+        $(this).hide();
+    });
+
+    $(document).on('click', '.cancel-edit-btn', function () {
+        const $post = $(this).closest('.post');
+        $post.find('.inline-edit-form').slideUp(160, function () {
+            $(this).attr('hidden', true);
+        });
+        $post.find('.post-content').show();
+        $post.find('.edit-post-btn').show();
+    });
+
+    $(document).on('submit', '.inline-edit-form', function (e) {
+        e.preventDefault();
+        const $form = $(this);
+        const $post = $form.closest('.post');
+        const $btn = $form.find('button[type="submit"]');
+        const $msg = $form.find('.form-msg');
+        const original = $btn.html();
+
+        $msg.removeClass('error success').hide();
+        $btn.prop('disabled', true).html('<span class="spinner"></span>');
+        post('edit_post.php', {
+            post_id: $form.data('post-id'),
+            body: $form.find('[name="body"]').val()
+        })
+        .done(function (res) {
+            if (res.ok) {
+                $post.find('.post-content').html(res.html).show();
+                $form.attr('hidden', true).hide();
+                $post.find('.edit-post-btn').show();
+                toast(res.message || 'Сообщение обновлено.', 'ok');
+            } else {
+                $msg.addClass('error').text(res.error || 'Не удалось сохранить.').show();
+            }
+        })
+        .fail(function (xhr) {
+            const err = (xhr.responseJSON && xhr.responseJSON.error) || 'Ошибка сети.';
+            $msg.addClass('error').text(err).show();
+        })
+        .always(function () {
+            $btn.prop('disabled', false).html(original);
+        });
+    });
+
+    $(document).on('click', '.delete-post-btn', function () {
+        if (!window.confirm('Удалить это сообщение? Его текст будет скрыт, но след останется в теме.')) {
+            return;
+        }
+        const $btn = $(this);
+        $btn.prop('disabled', true);
+        post('delete_post.php', { post_id: $btn.data('post-id') })
+        .done(function (res) {
+            if (res.ok) {
+                toast(res.message || 'Сообщение удалено.', 'ok');
+                setTimeout(() => window.location.reload(), 500);
+            } else {
+                toast(res.error || 'Не удалось удалить сообщение.', 'err');
+                $btn.prop('disabled', false);
+            }
+        })
+        .fail(function (xhr) {
+            const err = (xhr.responseJSON && xhr.responseJSON.error) || 'Ошибка сети.';
+            toast(err, 'err');
+            $btn.prop('disabled', false);
+        });
+    });
+
+    $(document).on('click', '.report-post-btn', function () {
+        const reason = window.prompt('Кратко опишите причину жалобы');
+        if (!reason || !reason.trim()) return;
+
+        const $btn = $(this);
+        $btn.prop('disabled', true);
+        post('report_post.php', {
+            post_id: $btn.data('post-id'),
+            reason: reason.trim()
+        })
+        .done(function (res) {
+            if (res.ok) {
+                toast(res.message || 'Жалоба отправлена модераторам.', 'ok');
+                $btn.text('Жалоба отправлена');
+            } else {
+                toast(res.error || 'Не удалось отправить жалобу.', 'err');
+                $btn.prop('disabled', false);
+            }
+        })
+        .fail(function (xhr) {
+            const err = (xhr.responseJSON && xhr.responseJSON.error) || 'Ошибка сети.';
+            toast(err, 'err');
+            $btn.prop('disabled', false);
+        });
+    });
+
+    $(document).on('click', '.moderate-report-btn', function () {
+        const $btn = $(this);
+        $btn.prop('disabled', true);
+        post('moderate_report.php', {
+            report_id: $btn.data('report-id'),
+            status: $btn.data('status')
+        })
+        .done(function (res) {
+            if (res.ok) {
+                toast(res.message || 'Жалоба обновлена.', 'ok');
+                $btn.closest('.report-card').fadeOut(180, function () { $(this).remove(); });
+            } else {
+                toast(res.error || 'Не удалось обновить жалобу.', 'err');
+                $btn.prop('disabled', false);
+            }
+        })
+        .fail(function (xhr) {
+            const err = (xhr.responseJSON && xhr.responseJSON.error) || 'Ошибка сети.';
+            toast(err, 'err');
+            $btn.prop('disabled', false);
+        });
+    });
+
+    $(document).on('click', '.mark-notifications-read-btn, .mark-notification-read-btn', function () {
+        const $btn = $(this);
+        $btn.prop('disabled', true);
+        post('mark_notifications_read.php', {
+            notification_id: $btn.data('notification-id') || 0
+        })
+        .done(function (res) {
+            if (res.ok) {
+                toast(res.message || 'Уведомления обновлены.', 'ok');
+                setTimeout(() => window.location.reload(), 350);
+            } else {
+                toast(res.error || 'Не удалось обновить уведомления.', 'err');
+                $btn.prop('disabled', false);
+            }
+        })
+        .fail(function (xhr) {
+            const err = (xhr.responseJSON && xhr.responseJSON.error) || 'Ошибка сети.';
+            toast(err, 'err');
+            $btn.prop('disabled', false);
+        });
+    });
+
+    $(document).on('click', '.quote-post-btn', function () {
+        const $textarea = $('#reply-form textarea[name="body"]');
+        if (!$textarea.length) {
+            toast('Ответить можно после входа в тему.', 'err');
+            return;
+        }
+        const quote = $(this).data('quote') || '';
+        const current = $textarea.val();
+        $textarea.val((current ? current + '\n\n' : '') + '> ' + quote).focus().trigger('input');
     });
 
     /* ========================================================

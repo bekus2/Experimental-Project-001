@@ -3,9 +3,9 @@
  * Проект: ВайбКод
  * Файл: includes/auth.php
  * Автор: Beck Sarbassov
- * Версия: 1.1.0
+ * Версия: 1.2.0
  * Дата выпуска: 2026-06-16
- * Последнее обновление: 2026-06-19
+ * Последнее обновление: 2026-06-21
  * Авторские права: © Beck Sarbassov. Все права защищены.
  *
  * EN: Manages sessions, authentication state, role checks, and CSRF protection.
@@ -44,9 +44,14 @@ function current_user(): ?array
         return $user = null;
     }
 
-    $stmt = db()->prepare('SELECT id, username, email, avatar_color, bio, role, created_at FROM users WHERE id = ?');
+    $stmt = db()->prepare('SELECT id, username, email, avatar_color, bio, role, created_at, last_seen_at FROM users WHERE id = ?');
     $stmt->execute([$_SESSION['user_id']]);
     $row = $stmt->fetch();
+
+    if ($row) {
+        db()->prepare('UPDATE users SET last_seen_at = NOW() WHERE id = ?')->execute([(int)$row['id']]);
+        $row['last_seen_at'] = date('Y-m-d H:i:s');
+    }
 
     return $user = ($row ?: null);
 }

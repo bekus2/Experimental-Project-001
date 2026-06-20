@@ -1,6 +1,15 @@
 <?php
 /**
- * AJAX: переключение лайка на сообщении.
+ * Проект: ВайбКод
+ * Файл: api/like.php
+ * Автор: Beck Sarbassov
+ * Версия: 1.2.0
+ * Дата выпуска: 2026-06-16
+ * Последнее обновление: 2026-06-21
+ * Авторские права: © Beck Sarbassov. Все права защищены.
+ *
+ * EN: Toggles a like on a visible post for the authenticated user.
+ * RU: Переключает лайк на видимом сообщении для авторизованного пользователя.
  */
 
 declare(strict_types=1);
@@ -20,9 +29,10 @@ if (!$me) {
 $postId = (int)($_POST['post_id'] ?? 0);
 
 $pdo = db();
-$stmt = $pdo->prepare('SELECT id FROM posts WHERE id = ?');
+$stmt = $pdo->prepare('SELECT id, is_deleted FROM posts WHERE id = ?');
 $stmt->execute([$postId]);
-if (!$stmt->fetch()) {
+$post = $stmt->fetch();
+if (!$post || (int)$post['is_deleted'] === 1) {
     json_error('Сообщение не найдено.', 404);
 }
 

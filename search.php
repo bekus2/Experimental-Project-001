@@ -1,4 +1,17 @@
 <?php
+/**
+ * Проект: ВайбКод
+ * Файл: search.php
+ * Автор: Beck Sarbassov
+ * Версия: 1.2.0
+ * Дата выпуска: 2026-06-16
+ * Последнее обновление: 2026-06-21
+ * Авторские права: © Beck Sarbassov. Все права защищены.
+ *
+ * EN: Renders the live search page for forum topics, tags, and posts.
+ * RU: Рендерит страницу живого поиска по темам, тегам и сообщениям форума.
+ */
+
 declare(strict_types=1);
 
 require_once __DIR__ . '/includes/auth.php';
